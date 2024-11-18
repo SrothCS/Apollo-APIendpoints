@@ -68,11 +68,11 @@ def initialize_database():
 
 @app.errorhandler(400)
 def bad_request(e):
-    return jsonify({"error": "Bad Request", "message": "Invalid JSON data"}), 400
+    return jsonify({"error": "Bad Request", "message": str(e)}), 400
 
 @app.errorhandler(422)
 def unprocessable_entity(e):
-    return jsonify({"error": "Unprocessable Entity", "message": "Validation failed", "details": str(e)}), 422
+    return jsonify({"error": "Unprocessable Entity", "message": str(e)}), 422
 
 @app.route('/', methods=['GET'])
 def home():
@@ -105,20 +105,38 @@ def get_vehicles():
         ]
         return jsonify(vehicles), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error", "message": str(e)}), 500
 
 @app.route('/vehicle', methods=['POST'])
 def create_vehicle():
     """Add a new vehicle."""
     try:
-        data = request.get_json()
+        try:
+            data = request.get_json(force=True)
+        except Exception:
+            return jsonify({"error": "Bad Request", "message": "Invalid JSON data"}), 400
+
         if not data:
             return jsonify({"error": "Bad Request", "message": "No JSON data provided"}), 400
 
         required_fields = ["vin", "manufacturer_name", "model_name", "model_year", "fuel_type"]
+        errors = {}
+
+        # Validate required fields
         for field in required_fields:
-            if field not in data or not data[field]:
-                return jsonify({"error": "Unprocessable Entity", "message": f"'{field}' is required"}), 422
+            if field not in data or data[field] in [None, '']:
+                errors[field] = f"'{field}' is required."
+
+        # Validate data types
+        if "model_year" in data and not isinstance(data["model_year"], int):
+            errors["model_year"] = "'model_year' must be an integer."
+        if "horse_power" in data and data["horse_power"] is not None and not isinstance(data["horse_power"], int):
+            errors["horse_power"] = "'horse_power' must be an integer."
+        if "purchase_price" in data and data["purchase_price"] is not None and not isinstance(data["purchase_price"], (int, float)):
+            errors["purchase_price"] = "'purchase_price' must be a number."
+
+        if errors:
+            return jsonify({"error": "Unprocessable Entity", "message": "Validation failed", "details": errors}), 422
 
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -142,7 +160,7 @@ def create_vehicle():
         conn.close()
         return jsonify({"message": "Vehicle added successfully"}), 201
     except Error as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error", "message": str(e)}), 500
 
 @app.route('/vehicle/<string:vin>', methods=['GET'])
 def get_vehicle_by_vin(vin):
@@ -170,42 +188,69 @@ def get_vehicle_by_vin(vin):
         }
         return jsonify(vehicle), 200
     except Error as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error", "message": str(e)}), 500
 
 @app.route('/vehicle/<string:vin>', methods=['PUT'])
 def update_vehicle(vin):
     """Update a vehicle record."""
     try:
-        data = request.get_json()
+        try:
+            data = request.get_json(force=True)
+        except Exception:
+            return jsonify({"error": "Bad Request", "message": "Invalid JSON data"}), 400
+
         if not data:
             return jsonify({"error": "Bad Request", "message": "No JSON data provided"}), 400
 
+        # Check if vehicle exists
         conn = get_db_connection()
         cursor = conn.cursor()
+        cursor.execute("SELECT vin FROM vehicles_schema.vehicles WHERE vin = %s;", (vin,))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({"error": "Vehicle not found"}), 404
 
-        update_query = """
-        UPDATE vehicles_schema.vehicles
-        SET manufacturer_name = %s, description = %s, horse_power = %s,
-            model_name = %s, model_year = %s, purchase_price = %s, fuel_type = %s
-        WHERE vin = %s;
-        """
-        cursor.execute(update_query, (
-            data.get("manufacturer_name"),
-            data.get("description"),
-            data.get("horse_power"),
-            data.get("model_name"),
-            data.get("model_year"),
-            data.get("purchase_price"),
-            data.get("fuel_type"),
-            vin
-        ))
+        # Validate data types
+        errors = {}
+        if "model_year" in data and data["model_year"] is not None and not isinstance(data["model_year"], int):
+            errors["model_year"] = "'model_year' must be an integer."
+        if "horse_power" in data and data["horse_power"] is not None and not isinstance(data["horse_power"], int):
+            errors["horse_power"] = "'horse_power' must be an integer."
+        if "purchase_price" in data and data["purchase_price"] is not None and not isinstance(data["purchase_price"], (int, float)):
+            errors["purchase_price"] = "'purchase_price' must be a number."
+
+        if errors:
+            return jsonify({"error": "Unprocessable Entity", "message": "Validation failed", "details": errors}), 422
+
+        # Build the UPDATE query dynamically based on provided fields
+        fields = []
+        values = []
+        for key in ['manufacturer_name', 'description', 'horse_power', 'model_name', 'model_year', 'purchase_price', 'fuel_type']:
+            if key in data:
+                fields.append(sql.Identifier(key))
+                values.append(data[key])
+
+        if not fields:
+            return jsonify({"error": "Unprocessable Entity", "message": "No valid fields provided for update"}), 422
+
+        update_query = sql.SQL("""
+            UPDATE vehicles_schema.vehicles
+            SET ({fields}) = ROW({placeholders})
+            WHERE vin = %s;
+        """).format(
+            fields=sql.SQL(', ').join(fields),
+            placeholders=sql.SQL(', ').join(sql.Placeholder() * len(fields))
+        )
+
+        cursor.execute(update_query, values + [vin])
         conn.commit()
         cursor.close()
         conn.close()
 
         return jsonify({"message": "Vehicle updated successfully"}), 200
     except Error as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error", "message": str(e)}), 500
 
 @app.route('/vehicle/<string:vin>', methods=['DELETE'])
 def delete_vehicle(vin):
@@ -214,16 +259,20 @@ def delete_vehicle(vin):
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM vehicles_schema.vehicles WHERE vin = %s;", (vin,))
+        if cursor.rowcount == 0:
+            cursor.close()
+            conn.close()
+            return jsonify({"error": "Vehicle not found"}), 404
         conn.commit()
         cursor.close()
         conn.close()
 
-        return jsonify({"message": "Vehicle deleted successfully"}), 204
+        return '', 204  # Return No Content
     except Error as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error", "message": str(e)}), 500
 
-# if __name__ == '__main__':
-#     # Only initialize the database in development
-#     if os.getenv("ENV") != "production":
-#         initialize_database()
-#     app.run(debug=True, host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+# Only initialize the database in development
+#if __name__ == '__main__':
+    #if os.getenv("ENV") != "production":
+        #initialize_database()
+    #app.run(debug=True, host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
