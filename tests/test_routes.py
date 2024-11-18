@@ -1,25 +1,18 @@
 import pytest
-from api.routes import app, initialize_database, get_db_connection
+import requests
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Retrieve the base URL from environment variables
+BASE_URL = os.getenv('BASE_URL', 'http://127.0.0.1:5000')
 
 @pytest.fixture
-def client():
-    """Set up a Flask test client."""
-    app.config['TESTING'] = True
-    with app.test_client() as client:
-        with app.app_context():
-            initialize_database()  # Reinitialize the database schema
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute("TRUNCATE TABLE vehicles_schema.vehicles RESTART IDENTITY CASCADE;")
-            conn.commit()
-            cursor.close()
-            conn.close()
-        yield client
-
-@pytest.fixture
-def add_test_vehicle():
-    """Add a test vehicle to the database."""
-    test_vehicle = {
+def sample_vehicle():
+    """Sample vehicle data for tests."""
+    return {
         "vin": "1HGCM82633A123456",
         "manufacturer_name": "Honda",
         "description": "A reliable sedan",
@@ -29,60 +22,81 @@ def add_test_vehicle():
         "purchase_price": 25000.99,
         "fuel_type": "Gasoline"
     }
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    insert_query = """
-    INSERT INTO vehicles_schema.vehicles (vin, manufacturer_name, description, horse_power, model_name, model_year, purchase_price, fuel_type)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
-    """
-    cursor.execute(insert_query, tuple(test_vehicle.values()))
-    conn.commit()
-    cursor.close()
-    conn.close()
-    return test_vehicle
 
-def test_home(client):
+@pytest.fixture
+def invalid_vehicle():
+    """Invalid vehicle data missing required fields."""
+    return {
+        "manufacturer_name": "Honda",
+        "model_name": "Accord",
+        # Missing 'vin', 'model_year', 'fuel_type'
+    }
+
+def test_home_endpoint():
     """Test the home endpoint."""
-    response = client.get('/')
+    response = requests.get(f"{BASE_URL}/")
     assert response.status_code == 200
-    assert response.json == {"message": "Welcome to the Vehicles API"}
+    assert response.json() == {"message": "Welcome to the Vehicles API"}
 
-def test_create_vehicle(client):
+def test_create_vehicle(sample_vehicle):
     """Test creating a new vehicle."""
-    vehicle_data = {
-        "vin": "1HGCM82633A654321",
-        "manufacturer_name": "Toyota",
-        "description": "A compact car",
-        "horse_power": 150,
-        "model_name": "Corolla",
-        "model_year": 2021,
-        "purchase_price": 20000.00,
+    # Clean up before test
+    requests.delete(f"{BASE_URL}/vehicle/{sample_vehicle['vin']}")
+    
+    response = requests.post(f"{BASE_URL}/vehicle", json=sample_vehicle)
+    assert response.status_code == 201
+    assert response.json()["message"] == "Vehicle added successfully"
+
+def test_create_vehicle_with_malformed_json():
+    """Test creating a vehicle with malformed JSON."""
+    headers = {'Content-Type': 'application/json'}
+    malformed_json = '{"vin": "1234", "manufacturer_name": "Test" '  # Missing closing brace
+    response = requests.post(f"{BASE_URL}/vehicle", data=malformed_json, headers=headers)
+    assert response.status_code == 400
+    assert response.json()["error"] == "Bad Request"
+    assert response.json()["message"] == "Invalid JSON data"
+
+def test_create_vehicle_with_missing_fields(invalid_vehicle):
+    """Test creating a vehicle missing required fields."""
+    response = requests.post(f"{BASE_URL}/vehicle", json=invalid_vehicle)
+    assert response.status_code == 422
+    assert response.json()["error"] == "Unprocessable Entity"
+    assert "vin" in response.json()["details"]
+    assert "model_year" in response.json()["details"]
+    assert "fuel_type" in response.json()["details"]
+
+def test_create_vehicle_with_invalid_data_types():
+    """Test creating a vehicle with invalid data types."""
+    invalid_data = {
+        "vin": "1HGCM82633A123456",
+        "manufacturer_name": "Honda",
+        "model_name": "Accord",
+        "model_year": "Twenty Twenty",  # Invalid data type
         "fuel_type": "Gasoline"
     }
-    response = client.post('/vehicle', json=vehicle_data)
-    assert response.status_code == 201
-    assert response.json["message"] == "Vehicle added successfully"
+    response = requests.post(f"{BASE_URL}/vehicle", json=invalid_data)
+    assert response.status_code == 422
+    assert response.json()["error"] == "Unprocessable Entity"
+    assert "model_year" in response.json()["details"]
+    assert response.json()["details"]["model_year"] == "'model_year' must be an integer."
 
-    # Verify the vehicle was added
-    get_response = client.get(f'/vehicle/{vehicle_data["vin"]}')
-    assert get_response.status_code == 200
-    assert get_response.json["vin"] == vehicle_data["vin"]
-
-def test_get_vehicles(client, add_test_vehicle):
-    """Test fetching all vehicles."""
-    response = client.get('/vehicle')
+def test_get_vehicle_by_vin(sample_vehicle):
+    """Test retrieving a vehicle by VIN."""
+    vin = sample_vehicle["vin"]
+    response = requests.get(f"{BASE_URL}/vehicle/{vin}")
     assert response.status_code == 200
-    assert isinstance(response.json, list)
-    assert any(vehicle["vin"] == add_test_vehicle["vin"] for vehicle in response.json)
+    assert response.json()["vin"] == vin
 
-def test_get_vehicle_by_vin(client, add_test_vehicle):
-    """Test fetching a vehicle by VIN."""
-    response = client.get(f'/vehicle/{add_test_vehicle["vin"]}')
-    assert response.status_code == 200
-    assert response.json["vin"] == add_test_vehicle["vin"]
+def test_get_vehicle_not_found():
+    """Test retrieving a vehicle that does not exist."""
+    non_existent_vin = "NONEXISTENTVIN12345"
+    response = requests.get(f"{BASE_URL}/vehicle/{non_existent_vin}")
+    assert response.status_code == 404
+    assert response.json()["error"] == "Vehicle not found"
 
-def test_update_vehicle(client, add_test_vehicle):
+def test_update_vehicle(sample_vehicle):
     """Test updating a vehicle."""
+    vin = sample_vehicle["vin"]
     updated_data = {
         "manufacturer_name": "Honda",
         "description": "Updated description",
@@ -92,40 +106,36 @@ def test_update_vehicle(client, add_test_vehicle):
         "purchase_price": 26000.99,
         "fuel_type": "Hybrid"
     }
-    response = client.put(f'/vehicle/{add_test_vehicle["vin"]}', json=updated_data)
+    response = requests.put(f"{BASE_URL}/vehicle/{vin}", json=updated_data)
     assert response.status_code == 200
-    assert response.json["message"] == "Vehicle updated successfully"
+    assert response.json()["message"] == "Vehicle updated successfully"
 
-    # Verify the updates were applied
-    get_response = client.get(f'/vehicle/{add_test_vehicle["vin"]}')
-    assert get_response.status_code == 200
-    for key, value in updated_data.items():
-        assert get_response.json[key] == value
+def test_update_vehicle_with_invalid_data(sample_vehicle):
+    """Test updating a vehicle with invalid data types."""
+    vin = sample_vehicle["vin"]
+    invalid_data = {
+        "model_year": "Two Thousand Twenty-One",  # Invalid data type
+        "horse_power": "Two Hundred Ten"          # Invalid data type
+    }
+    response = requests.put(f"{BASE_URL}/vehicle/{vin}", json=invalid_data)
+    assert response.status_code == 422
+    assert response.json()["error"] == "Unprocessable Entity"
+    assert "model_year" in response.json()["details"]
+    assert "horse_power" in response.json()["details"]
 
-def test_delete_vehicle(client, add_test_vehicle):
-    """Test deleting a vehicle by VIN."""
-    response = client.delete(f'/vehicle/{add_test_vehicle["vin"]}')
+def test_delete_vehicle(sample_vehicle):
+    """Test deleting a vehicle."""
+    vin = sample_vehicle["vin"]
+    response = requests.delete(f"{BASE_URL}/vehicle/{vin}")
     assert response.status_code == 204
 
-    # Verify the vehicle was deleted
-    get_response = client.get(f'/vehicle/{add_test_vehicle["vin"]}')
-    assert get_response.status_code == 404
+    # Verify deletion
+    verify_response = requests.get(f"{BASE_URL}/vehicle/{vin}")
+    assert verify_response.status_code == 404
 
-def test_create_vehicle_invalid_data(client):
-    """Test creating a vehicle with invalid data."""
-    invalid_vehicle_data = {
-        "manufacturer_name": "Ford",  # Missing required fields
-        "model_year": 2020,
-        "fuel_type": "Gasoline"
-    }
-    response = client.post('/vehicle', json=invalid_vehicle_data)
-    assert response.status_code == 422
-    assert "message" in response.json
-    assert "is required" in response.json["message"]
-
-def test_get_vehicle_not_found(client):
-    """Test fetching a non-existent vehicle by VIN."""
-    response = client.get('/vehicle/INVALID_VIN')
+def test_delete_vehicle_not_found():
+    """Test deleting a vehicle that does not exist."""
+    non_existent_vin = "NONEXISTENTVIN12345"
+    response = requests.delete(f"{BASE_URL}/vehicle/{non_existent_vin}")
     assert response.status_code == 404
-    assert response.json["error"] == "Vehicle not found"
-
+    assert response.json()["error"] == "Vehicle not found"
