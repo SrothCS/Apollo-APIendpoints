@@ -1,4 +1,5 @@
 from api.routes import app, initialize_database
+import os
 
 def main():
     """Main entry point for the application."""
@@ -12,7 +13,9 @@ def main():
         return  # Exit the application if the database initialization fails
 
     print("Starting the Flask application...")
-    app.run(debug=True)
+    # Bind to the host and port required by Heroku
+    app.run(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
 
 if __name__ == "__main__":
     main()
+
