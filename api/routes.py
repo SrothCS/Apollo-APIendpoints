@@ -2,13 +2,17 @@ from flask import Flask, request, jsonify
 from psycopg2 import connect, sql, Error
 import os
 from urllib.parse import urlparse
+from dotenv import load_dotenv
+
+# Load environment variables from .env (for local development)
+load_dotenv()
 
 app = Flask(__name__)
 
 # Database connection configuration
 DATABASE_URL = os.getenv("DATABASE_URL")
 if DATABASE_URL:
-    # Parse Heroku's DATABASE_URL
+    # Parse DATABASE_URL
     parsed_url = urlparse(DATABASE_URL)
     DB_CONFIG = {
         "dbname": parsed_url.path[1:],  # Remove leading '/'
@@ -18,19 +22,15 @@ if DATABASE_URL:
         "port": parsed_url.port,
     }
 else:
-    # Local development configuration
-    DB_CONFIG = {
-        "dbname": "vehicles_db",
-        "user": "vehicles_user",
-        "password": "vehicles_password",
-        "host": "localhost",
-        "port": "5432",
-    }
+    # Handle case when DATABASE_URL is not set
+    raise Exception("DATABASE_URL environment variable not set")
 
 def get_db_connection():
     """Establish a database connection."""
     try:
-        return connect(**DB_CONFIG)
+        # Determine SSL mode based on the environment
+        sslmode = "require" if os.getenv("ENV") == "production" else "disable"
+        return connect(sslmode=sslmode, **DB_CONFIG)
     except Error as e:
         print(f"Error connecting to the database: {e}")
         raise
@@ -41,8 +41,8 @@ def initialize_database():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Ensure the schema exists
-        cursor.execute("CREATE SCHEMA IF NOT EXISTS vehicles_schema AUTHORIZATION vehicles_user;")
+        # Create the schema (without specifying AUTHORIZATION)
+        cursor.execute("CREATE SCHEMA IF NOT EXISTS vehicles_schema;")
 
         # Create the vehicles table within the schema
         create_table_query = """
@@ -223,5 +223,7 @@ def delete_vehicle(vin):
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    initialize_database()
+    # Only initialize the database in development
+    if os.getenv("ENV") != "production":
+        initialize_database()
     app.run(debug=True, host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
