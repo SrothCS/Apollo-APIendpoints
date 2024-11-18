@@ -14,13 +14,11 @@ def main():
             print("Database initialized successfully.")
         except Exception as e:
             print(f"Failed to initialize database: {e}")
-            # You may log the error or exit the application gracefully if necessary
-            return  # Exit the application if the database initialization fails
+            return  # Exit if database initialization fails
     else:
         print("Skipping database initialization in production.")
 
     print("Starting the Flask application...")
-    # Bind to the host and port required by Heroku
     app.run(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
 
 if __name__ == "__main__":
