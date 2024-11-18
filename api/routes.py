@@ -222,8 +222,8 @@ def delete_vehicle(vin):
     except Error as e:
         return jsonify({"error": str(e)}), 500
 
-if __name__ == '__main__':
-    # Only initialize the database in development
-    if os.getenv("ENV") != "production":
-        initialize_database()
-    app.run(debug=True, host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+# if __name__ == '__main__':
+#     # Only initialize the database in development
+#     if os.getenv("ENV") != "production":
+#         initialize_database()
+#     app.run(debug=True, host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
