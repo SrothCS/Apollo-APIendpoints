@@ -1,20 +1,39 @@
 from flask import Flask, request, jsonify
 from psycopg2 import connect, sql, Error
+import os
+from urllib.parse import urlparse
 
 app = Flask(__name__)
 
 # Database connection configuration
-DB_CONFIG = {
-    "dbname": "vehicles_db",
-    "user": "vehicles_user",
-    "password": "vehicles_password",
-    "host": "localhost",
-    "port": "5432"
-}
+DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL:
+    # Parse Heroku's DATABASE_URL
+    parsed_url = urlparse(DATABASE_URL)
+    DB_CONFIG = {
+        "dbname": parsed_url.path[1:],  # Remove leading '/'
+        "user": parsed_url.username,
+        "password": parsed_url.password,
+        "host": parsed_url.hostname,
+        "port": parsed_url.port,
+    }
+else:
+    # Local development configuration
+    DB_CONFIG = {
+        "dbname": "vehicles_db",
+        "user": "vehicles_user",
+        "password": "vehicles_password",
+        "host": "localhost",
+        "port": "5432",
+    }
 
 def get_db_connection():
     """Establish a database connection."""
-    return connect(**DB_CONFIG)
+    try:
+        return connect(**DB_CONFIG)
+    except Error as e:
+        print(f"Error connecting to the database: {e}")
+        raise
 
 def initialize_database():
     """Initialize the database schema."""
@@ -205,4 +224,4 @@ def delete_vehicle(vin):
 
 if __name__ == '__main__':
     initialize_database()
-    app.run(debug=True)
+    app.run(debug=True, host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
