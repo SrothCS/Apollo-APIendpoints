@@ -41,7 +41,7 @@ def initialize_database():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Create the schema (without specifying AUTHORIZATION)
+        # Create the schema without specifying AUTHORIZATION
         cursor.execute("CREATE SCHEMA IF NOT EXISTS vehicles_schema;")
 
         # Create the vehicles table within the schema
