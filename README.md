@@ -180,3 +180,195 @@ curl -X DELETE http://127.0.0.1:5000/vehicle/1HGCM82633A123459
 - Ensure the Flask server is running in one terminal tab while using another terminal for curl queries.
 - Errors will return JSON responses with detailed error messages.
 
+- ## Testing Commands
+
+Below are detailed `curl` commands to test each endpoint with both **valid (good)** and **invalid (bad)** scenarios.
+
+### 1. Home Endpoint (`GET /`)
+
+#### a. **Good Request**
+
+**Description:** Verify that the API is running and responds with a welcome message.
+
+
+curl -X GET http://vehicles-management-1235f3bf9a83.herokuapp.com/
+Expected Response:
+	•	Status Code: 200 OK
+	•	Body: {
+  "message": "Welcome to the Vehicles API"
+}
+b. Bad Request
+
+Attempting to send a method not allowed on this endpoint.
+
+Command: curl -X POST http://vehicles-management-1235f3bf9a83.herokuapp.com/
+
+Expected Response:
+	•	Status Code: 405 Method Not Allowed
+	•	Body: {
+  "error": "Method Not Allowed",
+  "message": "The method is not allowed for the requested URL."
+}
+2. Fetch All Vehicles (GET /vehicle)
+
+a. Good Request
+
+Description: Retrieve all vehicle records from the database.
+
+Command: curl -X GET http://vehicles-management-1235f3bf9a83.herokuapp.com/vehicle
+
+Expected Response:
+	•	Status Code: 200 OK
+	•	Body: JSON array of vehicle objects.
+[
+  {
+    "vin": "1HGCM82633A123456",
+    "manufacturer_name": "Honda",
+    "model_name": "Accord",
+    "model_year": 2020,
+    "fuel_type": "Gasoline",
+    "description": "A reliable sedan",
+    "horse_power": 200,
+    "purchase_price": 25000.99
+  },
+  ...
+  ]
+  b. Bad Request
+
+Fetching all vehicles typically doesn’t have a bad request scenario unless additional parameters are expected.
+
+3. Add a New Vehicle (POST /vehicle)
+
+a. Good Request
+
+Description: Add a new vehicle record with all required fields.
+
+Command: curl -X POST http://vehicles-management-1235f3bf9a83.herokuapp.com/vehicle \
+     -H "Content-Type: application/json" \
+     -d '{
+           "vin": "1HGCM82633A123459",
+           "manufacturer_name": "Lamborghini",
+           "model_name": "Huracan",
+           "model_year": 2020,
+           "fuel_type": "Petrol",
+           "description": "A fast cool car",
+           "horse_power": 500,
+           "purchase_price": 25000.99
+         }'
+Expected Response:
+	•	Status Code: 201 Created
+	•	Body: {
+  "message": "Vehicle added successfully",
+  "vehicle": {
+    "vin": "1HGCM82633A123459",
+    "manufacturer_name": "Lamborghini",
+    "model_name": "Huracan",
+    "model_year": 2020,
+    "fuel_type": "Petrol",
+    "description": "A fast cool car",
+    "horse_power": 500,
+    "purchase_price": 25000.99
+  }
+}
+b. Bad Requests
+
+i. Missing Required Fields
+
+Description: Attempt to add a vehicle without providing all required fields (e.g., missing vin).
+
+Command: curl -X POST http://vehicles-management-1235f3bf9a83.herokuapp.com/vehicle \
+     -H "Content-Type: application/json" \
+     -d '{
+           "manufacturer_name": "Toyota",
+           "model_name": "Camry",
+           "model_year": 2010,
+           "fuel_type": "Gasoline"
+         }'
+Expected Response:
+	•	Status Code: 422 Unprocessable Entity
+	•	Body: {
+  "error": "Unprocessable Entity",
+  "message": "Validation failed",
+  "details": {
+    "vin": "'vin' is required."
+  }
+}
+ii. Invalid Data Types
+
+Description: Attempt to add a vehicle with incorrect data types (e.g., model_year as a string).
+
+Command: curl -X POST http://vehicles-management-1235f3bf9a83.herokuapp.com/vehicle \
+     -H "Content-Type: application/json" \
+     -d '{
+           "vin": "1HGCM82633A123460",
+           "manufacturer_name": "Ford",
+           "model_name": "Mustang",
+           "model_year": "Two Thousand Ten",
+           "fuel_type": "Gasoline"
+         }'
+     Expected Response:
+	•	Status Code: 422 Unprocessable Entity
+	•	Body: {
+  "error": "Unprocessable Entity",
+  "message": "Validation failed",
+  "details": {
+    "model_year": "'model_year' must be an integer."
+  }
+}
+iii. Duplicate VIN
+
+Description: Attempt to add a vehicle with a VIN that already exists in the database.
+
+Command: curl -X POST http://vehicles-management-1235f3bf9a83.herokuapp.com/vehicle \
+     -H "Content-Type: application/json" \
+     -d '{
+           "vin": "1HGCM82633A123459",
+           "manufacturer_name": "Ferrari",
+           "model_name": "F8",
+           "model_year": 2021,
+           "fuel_type": "Petrol",
+           "description": "A luxury sports car",
+           "horse_power": 710,
+           "purchase_price": 28000.99
+         }'
+Expected Response:
+	•	Status Code: 409 Conflict
+	•	Body: {
+  "error": "Conflict",
+  "message": "A vehicle with this VIN already exists."
+}
+
+4. Fetch a Vehicle by VIN (GET /vehicle/{vin})
+
+a. Good Request
+
+Description: Retrieve details of an existing vehicle using its VIN.
+
+Command: curl -X GET http://vehicles-management-1235f3bf9a83.herokuapp.com/vehicle/1HGCM82633A123459
+Expected Response:
+	•	Status Code: 200 OK
+b. Bad Requests
+
+i. Non-Existent VIN
+
+Description: Attempt to retrieve a vehicle that does not exist in the database.
+
+Command: curl -X GET http://vehicles-management-1235f3bf9a83.herokuapp.com/vehicle/NONEXISTENTVIN123
+
+5. Update a Vehicle (PUT /vehicle/{vin})
+
+a. Good Request
+
+Description: Update specific details of an existing vehicle.
+
+Command: curl -X PUT http://vehicles-management-1235f3bf9a83.herokuapp.com/vehicle/1HGCM82633A123459 \
+     -H "Content-Type: application/json" \
+     -d '{
+           "description": "An updated description for the Huracan",
+           "model_year": 2021,
+           "horse_power": 550
+         }'
+
+
+
+
